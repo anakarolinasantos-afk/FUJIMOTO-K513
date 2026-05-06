@@ -96,6 +96,20 @@
   .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted2); font-family: 'DM Mono', monospace; }
   .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
 
+  .table-row.group-header { background: var(--surface2); cursor: pointer; user-select: none; }
+  .table-row.group-header:hover { background: rgba(255,255,255,0.06); }
+  .table-row.subrow { background: rgba(201,184,255,0.03); padding-left: 36px; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; }
+  .table-row.subrow:hover { background: rgba(201,184,255,0.06); }
+  .subrows { overflow: hidden; transition: max-height 0.4s ease; }
+  .expand-icon { font-size: 10px; color: var(--accent); transition: transform 0.3s; display: inline-block; margin-right: 4px; }
+  .expanded .expand-icon { transform: rotate(90deg); }
+  .badge.neutral { background: rgba(160,157,168,0.1); color: var(--muted2); }
+  .badge.new { background: rgba(245,200,66,0.15); color: #f5c842; }
+  .badge.removed { background: rgba(86,209,140,0.15); color: var(--green); }
+  .pill { font-size: 9px; padding: 2px 6px; border-radius: 4px; font-family: 'DM Mono', monospace; letter-spacing: 0.05em; margin-left: 4px; }
+  .pill.new { background: rgba(245,200,66,0.2); color: #f5c842; }
+  .pill.removed { background: rgba(86,209,140,0.2); color: var(--green); }
+  .pill.split { background: rgba(201,184,255,0.2); color: var(--accent); }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 </head>
@@ -224,6 +238,16 @@ const apr = [175329.00, 76819.17, 31833.00, 12504.00, 1371.12, 2580.00];
 const rea = [169404.96, 68748.31, 16785.60, 45067.09, 899.52, 23232.27];
 const vars = [-3.38, -10.51, -47.27, 260.42, -34.40, 800.48];
 
+const subCats = [
+  { name: 'AFRMM - Marinha Mercante',         apr: 2404.00,  rea: 1273.05,  status: 'normal' },
+  { name: 'Armazenagem Santos Brasil',   apr: 2350.00,  rea: 2682.23,  status: 'normal' },
+  { name: 'Despachante',                       apr: 1700.00,  rea: 2590.00,  status: 'normal' },
+  { name: 'Lavagem de CTNR',                   apr: 250.00,   rea: 118.73,   status: 'normal' },
+  { name: 'Pacote Operacional',                apr: 5750.00,  rea: 0,        status: 'split' },
+  { name: 'Atual — Entrega Vazio + Arm. 1, 2, 3, 4 e 5º', apr: 0, rea: 36909.57, status: 'split' },
+  { name: 'Armazenagem EADI + Seguro + Mov + Pesagem', apr: 0,      rea: 1443.51,   status: 'new' },
+];
+
 const totalReal = 324137.75;
 const fmtBRL = v => 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
 const fmtK = v => 'R$ ' + (v/1000).toFixed(1) + 'k';
@@ -237,20 +261,80 @@ const tableWrap = document.querySelector('.table-wrap');
 cats.forEach((c, i) => {
   const diff = rea[i] - apr[i];
   const isUp = vars[i] >= 0;
+  const isFlat = Math.abs(vars[i]) < 0.005;
+  const isDesemp = c === 'Desp. desembaraço';
   const pct = Math.min(Math.abs(rea[i]/apr[i]*100), 100).toFixed(0);
+  const badgeClass = isFlat ? 'badge neutral' : (isUp ? 'badge up' : 'badge down');
+  const badgeIcon  = isFlat ? '—' : (isUp ? '▲' : '▼');
+  const diffColor  = isFlat ? 'var(--muted2)' : (isUp ? 'var(--red)' : 'var(--green)');
+  const barColor   = isUp ? 'var(--red)' : 'var(--green)';
+
   const row = document.createElement('div');
-  row.className = 'table-row';
+  row.className = 'table-row' + (isDesemp ? ' group-header' : '');
   row.innerHTML = `
-    <span class="cat">${c}</span>
+    <span class="cat">
+      ${isDesemp ? '<span class="expand-icon">▶</span>' : ''}
+      ${c}
+    </span>
     <span class="val">${fmtBRL(apr[i])}</span>
     <span class="val real">${fmtBRL(rea[i])}</span>
-    <span class="val" style="color:${isUp?'var(--red)':'var(--green)'}">${isUp?'+':''}${fmtBRL(diff)}</span>
-    <span style="text-align:right"><span class="badge ${isUp?'up':'down'}">${isUp?'▲':'▼'} ${Math.abs(vars[i]).toFixed(2)}%</span></span>
+    <span class="val" style="color:${diffColor}">${diff >= 0 ? '+' : ''}${fmtBRL(diff)}</span>
+    <span style="text-align:right"><span class="${badgeClass}">${badgeIcon} ${Math.abs(vars[i]).toFixed(2)}%</span></span>
     <div class="bar-wrap" style="grid-column:1/-1">
-      <div class="bar-fill" style="width:0%;background:${isUp?'var(--red)':'var(--green)'}" data-pct="${pct}"></div>
+      <div class="bar-fill" style="width:0%;background:${barColor}" data-pct="${pct}"></div>
     </div>
   `;
   tableWrap.appendChild(row);
+
+  if (isDesemp) {
+    const subContainer = document.createElement('div');
+    subContainer.className = 'subrows';
+    subContainer.style.maxHeight = '0px';
+
+    subCats.forEach(s => {
+      const sd    = s.rea - s.apr;
+      const sv    = s.apr > 0 ? (sd / s.apr * 100) : null;
+      const sUp   = sv !== null && sv > 0.005;
+      const sFlat = sv !== null && Math.abs(sv) < 0.005;
+      const isNew    = s.status === 'new';
+      const isRem    = s.status === 'removed';
+      const isSplit  = s.status === 'split';
+
+      let badgeHTML;
+      if (isNew)        badgeHTML = '<span class="badge new">✦ NOVA</span>';
+      else if (isRem)   badgeHTML = '<span class="badge removed">✕ NÃO UTILIZADO</span>';
+      else if (isSplit && s.apr > 0) badgeHTML = '<span class="badge neutral">↗ DESMEMBRADO</span>';
+      else if (isSplit && s.rea > 0) badgeHTML = '<span class="badge new">↗ DESMEMBRADO</span>';
+      else if (sFlat)   badgeHTML = '<span class="badge neutral">— 0,00%</span>';
+      else              badgeHTML = `<span class="badge ${sUp ? 'up' : 'down'}">${sUp ? '▲' : '▼'} ${Math.abs(sv).toFixed(2)}%</span>`;
+
+      const sDiffColor = isNew ? '#f5c842' : isRem ? 'var(--green)' : isSplit ? 'var(--accent)' : sFlat ? 'var(--muted2)' : sUp ? 'var(--red)' : 'var(--green)';
+      const diffLabel  = isNew ? '+' + fmtBRL(s.rea) : isRem ? '-' + fmtBRL(s.apr) : isSplit && s.apr > 0 ? '-' + fmtBRL(s.apr) : isSplit && s.rea > 0 ? '+' + fmtBRL(s.rea) : (sd >= 0 ? '+' : '') + fmtBRL(sd);
+
+      const subRow = document.createElement('div');
+      subRow.className = 'table-row subrow';
+      subRow.innerHTML = `
+        <span class="cat" style="font-size:12px;font-weight:400;color:var(--muted2)">
+          ${s.name}
+          ${isNew    ? '<span class="pill new">NOVA</span>' : ''}
+          ${isRem    ? '<span class="pill removed">NÃO UTILIZADO</span>' : ''}
+          ${isSplit  ? '<span class="pill split">DESMEMBRADO</span>' : ''}
+        </span>
+        <span class="val">${s.apr > 0 ? fmtBRL(s.apr) : '—'}</span>
+        <span class="val real">${s.rea > 0 ? fmtBRL(s.rea) : '—'}</span>
+        <span class="val" style="color:${sDiffColor}">${diffLabel}</span>
+        <span style="text-align:right">${badgeHTML}</span>
+      `;
+      subContainer.appendChild(subRow);
+    });
+
+    tableWrap.appendChild(subContainer);
+    row.addEventListener('click', () => {
+      const isOpen = subContainer.style.maxHeight !== '0px';
+      subContainer.style.maxHeight = isOpen ? '0px' : subContainer.scrollHeight + 'px';
+      row.classList.toggle('expanded', !isOpen);
+    });
+  }
 });
 
 setTimeout(() => {
